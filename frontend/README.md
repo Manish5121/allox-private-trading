@@ -1,73 +1,146 @@
-# Welcome to your Lovable project
+# Allox Frontend
 
-## Project info
+Modern Next.js application for browsing and trading private company shares.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 🚀 Tech Stack
 
-## How can I edit this code?
+- **Next.js 16.1.6** - React framework with App Router and Turbopack
+- **React 18.3.1** - UI library with hooks and server components
+- **TypeScript 5.8.3** - Static type checking
+- **Tailwind CSS 3.4** - Utility-first CSS framework
+- **TanStack Query** - Server state management with automatic caching
+- **Radix UI** - Accessible, unstyled component primitives
+- **Lucide React** - Beautiful icon library
+- **Recharts** - Data visualization
 
-There are several ways of editing your application.
+## 📁 Project Structure
 
-**Use Lovable**
+```
+frontend/
+├── app/
+│   ├── layout.tsx           # Root layout with providers
+│   ├── page.tsx             # Homepage
+│   ├── markets/             # Markets listing page
+│   └── deal/[slug]/         # Dynamic company detail pages
+├── components/
+│   ├── ui/                  # Base Radix components
+│   ├── Navbar.tsx           # Navigation header
+│   ├── CompanyTable.tsx     # Company data table
+│   └── ...
+├── lib/
+│   ├── api.ts               # API client
+│   ├── types.ts             # TypeScript definitions
+│   └── utils.ts             # Utility functions
+└── public/                  # Static assets
+```
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## 🛠️ Getting Started
 
-Changes made via Lovable will be committed automatically to this repo.
+### Prerequisites
 
-**Use your preferred IDE**
+- Node.js 18 or higher
+- npm or yarn
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Installation
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+```bash
+# Install dependencies
+npm install
 
-Follow these steps:
+# Create environment file
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Start development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## 📝 Environment Variables
 
-**Use GitHub Codespaces**
+Create a `.env.local` file:
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000  # Backend API URL
+```
 
-## What technologies are used for this project?
+For production, update to your deployed backend URL.
 
-This project is built with:
+## 🎨 Key Features
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+- **Markets Dashboard** - Browse all available companies with filtering
+- **Company Profiles** - Detailed company information and metrics
+- **Funding History** - View complete funding rounds
+- **Real-time Search** - Filter companies by category
+- **Responsive Design** - Mobile-first approach
+- **Dark Mode** - Theme switching support
+- **Loading States** - Smooth UX with proper feedback
 
-## How can I deploy this project?
+## 📦 Available Scripts
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+```bash
+npm run dev      # Start development server
+npm run build    # Build for production
+npm start        # Start production server
+npm run lint     # Run ESLint
+```
 
-## Can I connect a custom domain to my Lovable project?
+## 🔧 Development
 
-Yes, you can!
+### Adding New Components
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+Components follow atomic design principles:
+- **atoms** - Basic UI elements (in `components/ui/`)
+- **molecules** - Composed components (in `components/`)
+- **organisms** - Complex components (page-specific)
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+### API Integration
+
+All API calls go through `lib/api.ts`:
+
+```typescript
+import { api } from '@/lib/api';
+
+const { data } = useQuery({
+  queryKey: ['companies', page],
+  queryFn: () => api.getCompanies(page)
+});
+```
+
+### Adding Routes
+
+Create new pages in the `app/` directory:
+
+```
+app/
+└── new-page/
+    └── page.tsx
+```
+
+Routes are automatically generated based on folder structure.
+
+## 🚢 Deployment
+
+### Vercel (Recommended)
+
+1. Connect your GitHub repository to Vercel
+2. Set environment variable: `NEXT_PUBLIC_API_URL`
+3. Deploy automatically on push to `main`
+
+### Manual Build
+
+```bash
+npm run build
+npm start
+```
+
+## 📚 Learn More
+
+- [Next.js Documentation](https://nextjs.org/docs)
+- [TanStack Query](https://tanstack.com/query/latest)
+- [Tailwind CSS](https://tailwindcss.com/docs)
+- [Radix UI](https://www.radix-ui.com/)
+
+## 🔒 License
+
+Private - All rights reserved
