@@ -22,4 +22,4 @@ app.include_router(router)
 if __name__ == "__main__":
     import uvicorn
     # Use reload=True for development to auto-restart on code changes
-    uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("src.main:app", host="0.0.0.0", port=8080, reload=True)
