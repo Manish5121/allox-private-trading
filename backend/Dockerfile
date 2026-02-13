@@ -49,4 +49,4 @@ COPY . .
 EXPOSE 8080
 
 # Start the application using shell form to expand $PORT
-CMD ["uv", "run", "python", "src/main.py"]
+CMD ["uv", "run", "python", "-m", "src.main"]
