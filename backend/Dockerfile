@@ -1,3 +1,4 @@
+# Dockerfile for Railway deployment
 FROM python:3.11-slim
 
 # Install system dependencies required for Camoufox/Firefox
