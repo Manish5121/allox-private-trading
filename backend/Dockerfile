@@ -49,4 +49,4 @@ COPY . .
 EXPOSE 8080
 
 # Start the application using shell form to expand $PORT
-CMD sh -c "uv run uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8080}"
+CMD ["uv", "run", "python", "src/main.py"]
