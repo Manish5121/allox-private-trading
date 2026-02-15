@@ -41,7 +41,16 @@ class ForgeGlobalService(ScraperService):
         
         results = []
         
-        with Camoufox(headless=True) as browser:
+        # Memory optimization args for Render
+        browser_args = [
+            "--disable-dev-shm-usage", 
+            "--no-sandbox", 
+            "--disable-gpu", 
+            "--disable-software-rasterizer", 
+            "--single-process"
+        ]
+        
+        with Camoufox(headless=True, args=browser_args) as browser:
             page = browser.new_page()
             
             try:
@@ -155,7 +164,16 @@ class ForgeGlobalService(ScraperService):
         url = f"https://forgeglobal.com/{slug}_stock/"
         print(f"Scraping Company Detail URL: {url}")
         
-        with Camoufox(headless=True) as browser:
+        # Memory optimization args for Render
+        browser_args = [
+            "--disable-dev-shm-usage", 
+            "--no-sandbox", 
+            "--disable-gpu", 
+            "--disable-software-rasterizer", 
+            "--single-process"
+        ]
+
+        with Camoufox(headless=True, args=browser_args) as browser:
             page = browser.new_page()
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
