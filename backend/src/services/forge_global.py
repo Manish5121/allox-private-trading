@@ -62,16 +62,24 @@ class ForgeGlobalService(ScraperService):
                 print(f"Sleeping for {sleep_time:.2f}s...")
                 time.sleep(sleep_time)
                 
-                xpath_selector = '//*[@id="searchResults"]/div/div[1]/table/tbody'
+                # Use simpler CSS selector for robustness
+                # Was: //*[@id="searchResults"]/div/div[1]/table/tbody
+                css_selector = "table tbody"
                 
                 print("Waiting for table...")
                 try:
-                    page.wait_for_selector(xpath_selector, timeout=30000)
-                    tbody = page.locator(xpath_selector)
+                    # Wait for ANY table body to appear
+                    page.wait_for_selector(css_selector, timeout=30000)
+                    tbody = page.locator(css_selector).first 
                     rows = tbody.locator("tr").all()
                     
                     if not rows:
                         print("No rows found.")
+                        # Debug empty table
+                        try:
+                            print(f"DEBUG_HTML_SNIPPET: {page.content()[:3000]}")
+                        except:
+                            pass
                         return []
                         
                     print(f"Found {len(rows)} rows.")
@@ -146,6 +154,7 @@ class ForgeGlobalService(ScraperService):
                     try:
                         print(f"DEBUG_URL: {page.url}")
                         print(f"DEBUG_TITLE: {page.title()}")
+                        print(f"DEBUG_HTML_SNIPPET: {page.content()[:3000]}")
                     except:
                         pass
                     
