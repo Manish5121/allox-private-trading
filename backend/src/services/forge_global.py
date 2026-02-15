@@ -5,6 +5,7 @@ from typing import List, Dict, Optional
 from src.services.base import ScraperService
 from src.config import SpeedProfile, SLEEP_CONFIG
 from src.models.schemas import UnifiedCompanyData, ForgeCompanyData, CompanyDetail
+import gc
 from src.services.browser_manager import browser_manager
 
 class ForgeGlobalService(ScraperService):
@@ -190,6 +191,8 @@ class ForgeGlobalService(ScraperService):
         finally:
             print("Closing browser context...")
             await context.close()
+            gc.collect()
+            print("Memory cleanup completed.")
                 
         return results
 
@@ -494,3 +497,5 @@ class ForgeGlobalService(ScraperService):
         finally:
             print("Closing browser context...")
             await context.close()
+            gc.collect()
+            print("Detail scrape memory cleanup completed.")
