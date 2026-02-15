@@ -8,7 +8,7 @@ router = APIRouter()
 service = ForgeGlobalService()
 
 @router.get("/data/forge", response_model=PaginatedResponse)
-def get_forge_data(
+async def get_forge_data(
     sector: Optional[str] = Query(None, description="Sector to filter by (e.g., healthcare-biotech-pharma)"),
     valuation: Optional[str] = Query(None, description="Valuation filter (e.g., 500m)"),
     page: int = Query(1, ge=1, description="Page number"),
@@ -20,7 +20,7 @@ def get_forge_data(
     """
     try:
         # Service returns List[UnifiedCompanyData]
-        data = service.scrape(sector=sector, valuation=valuation, page_num=page, speed=speed)
+        data = await service.scrape(sector=sector, valuation=valuation, page_num=page, speed=speed)
         
         # Standard page size is 24 items per page on Forge
         page_size = len(data)
@@ -50,12 +50,12 @@ def get_forge_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/data/company/{slug}", response_model=CompanyDetail)
-def get_company_detail(slug: str):
+async def get_company_detail(slug: str):
     """
     Scrape detailed company information by slug (e.g., discord, spacex).
     """
     try:
-        data = service.scrape_company_detail(slug)
+        data = await service.scrape_company_detail(slug)
         if not data:
             raise HTTPException(status_code=404, detail="Company not found or scraping failed")
         return data

@@ -1,15 +1,19 @@
 import time
+import asyncio
 import random
 from typing import List, Dict, Optional
-from camoufox.sync_api import Camoufox
 from src.services.base import ScraperService
 from src.config import SpeedProfile, SLEEP_CONFIG
 from src.models.schemas import UnifiedCompanyData, ForgeCompanyData, CompanyDetail
+from src.services.browser_manager import browser_manager
 
 class ForgeGlobalService(ScraperService):
     BASE_URL = "https://forgeglobal.com/search-companies/"
+    # Simple in-memory cache: slug -> (data, timestamp)
+    _detail_cache: Dict[str, tuple[CompanyDetail, float]] = {}
+    CACHE_TTL = 3600  # 1 hour
 
-    def scrape(
+    async def scrape(
         self, 
         sector: Optional[str] = None, 
         valuation: Optional[str] = None, 
@@ -41,26 +45,30 @@ class ForgeGlobalService(ScraperService):
         
         results = []
         
-        # Memory optimization args for Render
-        browser_args = [
-            "--disable-dev-shm-usage", 
-            "--no-sandbox", 
-            "--disable-gpu", 
-            "--disable-software-rasterizer", 
-            "--single-process"
-        ]
+        # Singleton Browser Usage
+        browser = await browser_manager.get_browser()
+        context = await browser.new_context()
         
-        with Camoufox(headless=True, args=browser_args) as browser:
-            page = browser.new_page()
+        # Block heavy resources to save memory
+        async def route_handler(route):
+            if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+                await route.abort()
+            else:
+                await route.continue_()
+
+        try:
+            # Create page and apply routing
+            page = await context.new_page()
+            await page.route("**/*", route_handler)
             
             try:
                 print(f"Navigating to {url}...")
-                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 
                 # Sleep based on speed profile
                 sleep_time = random.uniform(min_sleep, max_sleep)
                 print(f"Sleeping for {sleep_time:.2f}s...")
-                time.sleep(sleep_time)
+                await asyncio.sleep(sleep_time) # Use async sleep
                 
                 # Use simpler CSS selector for robustness
                 # Was: //*[@id="searchResults"]/div/div[1]/table/tbody
@@ -69,15 +77,16 @@ class ForgeGlobalService(ScraperService):
                 print("Waiting for table...")
                 try:
                     # Wait for ANY table body to appear
-                    page.wait_for_selector(css_selector, timeout=30000)
+                    await page.wait_for_selector(css_selector, timeout=30000)
                     tbody = page.locator(css_selector).first 
-                    rows = tbody.locator("tr").all()
+                    rows = await tbody.locator("tr").all()
                     
                     if not rows:
                         print("No rows found.")
                         # Debug empty table
                         try:
-                            print(f"DEBUG_HTML_SNIPPET: {page.content()[:3000]}")
+                            content = await page.content()
+                            print(f"DEBUG_HTML_SNIPPET: {content[:3000]}")
                         except:
                             pass
                         return []
@@ -85,7 +94,7 @@ class ForgeGlobalService(ScraperService):
                     print(f"Found {len(rows)} rows.")
                     
                     for row in rows:
-                        cells = row.locator("td").all_text_contents()
+                        cells = await row.locator("td").all_text_contents()
                         if not cells or len(cells) < 8:
                             continue
                             
@@ -94,7 +103,7 @@ class ForgeGlobalService(ScraperService):
                         try:
                             # Look for img tag in first cell (logo column)
                             logo_img = row.locator("td").first.locator("img").first
-                            logo_url = logo_img.get_attribute("src")
+                            logo_url = await logo_img.get_attribute("src")
                             if logo_url and not logo_url.startswith("http"):
                                 # Make absolute URL if relative
                                 logo_url = f"https://forgeglobal.com{logo_url}"
@@ -153,41 +162,60 @@ class ForgeGlobalService(ScraperService):
                     # Debugging for Render deployment
                     try:
                         print(f"DEBUG_URL: {page.url}")
-                        print(f"DEBUG_TITLE: {page.title()}")
-                        print(f"DEBUG_HTML_SNIPPET: {page.content()[:3000]}")
+                        print(f"DEBUG_TITLE: {await page.title()}")
+                        content = await page.content()
+                        print(f"DEBUG_HTML_SNIPPET: {content[:3000]}")
                     except:
                         pass
                     
             except Exception as e:
                 print(f"Navigation error: {e}")
+        finally:
+            print("Closing browser context...")
+            await context.close()
                 
         return results
 
-    def scrape_company_detail(self, slug: str) -> Optional[CompanyDetail]:
+    async def scrape_company_detail(self, slug: str) -> Optional[CompanyDetail]:
         """
         Scrapes detailed company information from a specific company page.
         """
         from src.models.schemas import CompanyDetail, FundingRound, KeyPerson
         from datetime import datetime
         
+        # Check Cache
+        current_time = time.time()
+        if slug in self._detail_cache:
+            data, timestamp = self._detail_cache[slug]
+            if current_time - timestamp < self.CACHE_TTL:
+                print(f"Adding cached result for {slug}")
+                return data
+            else:
+                del self._detail_cache[slug]
+        
         url = f"https://forgeglobal.com/{slug}_stock/"
         print(f"Scraping Company Detail URL: {url}")
         
-        # Memory optimization args for Render
-        browser_args = [
-            "--disable-dev-shm-usage", 
-            "--no-sandbox", 
-            "--disable-gpu", 
-            "--disable-software-rasterizer", 
-            "--single-process"
-        ]
+        # Singleton Browser Usage
+        browser = await browser_manager.get_browser()
+        context = await browser.new_context()
+        
+        # Block heavy resources to save memory
+        async def route_handler(route):
+            if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+                await route.abort()
+            else:
+                await route.continue_()
 
-        with Camoufox(headless=True, args=browser_args) as browser:
-            page = browser.new_page()
+        try:
+            # Create page and apply routing
+            page = await context.new_page()
+            await page.route("**/*", route_handler)
+
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 # Wait for main content
-                page.wait_for_selector("h1", timeout=15000)
+                await page.wait_for_selector("h1", timeout=15000)
                 
                 # 1. Header Info (Name, Logo)
                 name = "Unknown"
@@ -196,17 +224,18 @@ class ForgeGlobalService(ScraperService):
                 
                 try:
                     h1 = page.locator("h1").first
-                    if h1.count() > 0:
-                        raw_name = h1.inner_text().strip()
-                        name = raw_name.replace(" stock", "").replace(" Stock", "")
+                    if await h1.count() > 0:
+                        raw_name = await h1.inner_text()
+                        name = raw_name.strip().replace(" stock", "").replace(" Stock", "")
                         
                         # Logo is often in a picture element next to H1
                         # Structure: .d-flex.align-items-center > picture > img
                         header_container = h1.locator("..")
                         logo_img = header_container.locator("img").first
-                        if logo_img.count() > 0:
-                            logo_url = logo_img.get_attribute("src")
+                        if await logo_img.count() > 0:
+                            logo_url = await logo_img.get_attribute("src")
                             if logo_url and not logo_url.startswith("http"):
+                                # Make absolute URL if relative
                                 logo_url = f"https://forgeglobal.com{logo_url}"
                 except Exception as e:
                     print(f"Error extracting header: {e}")
@@ -222,40 +251,42 @@ class ForgeGlobalService(ScraperService):
                     # Structure: <div class="dg"><div class="dl">Forge Price</div><div class="dv1">$580.41 <span class="positive">+$17.81 (3.17%)</span></div>
                     
                     # Find all .dg containers
-                    dg_containers = page.locator(".dg").all()
+                    dg_containers = await page.locator(".dg").all()
                     
                     for container in dg_containers:
                         try:
                             # Check if this container has "Forge Price" label
                             label_el = container.locator(".dl").first
-                            if label_el.count() > 0 and "Forge Price" in label_el.inner_text():
-                                # Found the right container, now get the value
-                                value_container = container.locator(".dv1").first
-                                if value_container.count() > 0:
-                                    full_text = value_container.inner_text().strip()
-                                    # Extract price: first $XXX.XX pattern
-                                    import re
-                                    price_match = re.search(r'\$[\d,]+\.?\d*', full_text)
-                                    if price_match:
-                                        price = price_match.group(0)
-                                    
-                                    # Extract change from .positive or .negative span
-                                    change_span = value_container.locator(".positive, .negative").first
-                                    if change_span.count() > 0:
-                                        change_text = change_span.inner_text().strip()
-                                        # "+$17.81 (3.17%)" or "-$10.00 (-2.5%)"
-                                        parts = change_text.split(" ")
-                                        if len(parts) >= 2:
-                                            change = parts[0]  # e.g., "+$17.81"
-                                            change_pct = parts[1].replace("(", "").replace(")", "")  # e.g., "3.17%"
-                                    break  # Found it, exit loop
+                            if await label_el.count() > 0:
+                                label_text = await label_el.inner_text()
+                                if "Forge Price" in label_text:
+                                    # Found the right container, now get the value
+                                    value_container = container.locator(".dv1").first
+                                    if await value_container.count() > 0:
+                                        full_text = (await value_container.inner_text()).strip()
+                                        # Extract price: first $XXX.XX pattern
+                                        import re
+                                        price_match = re.search(r'\$[\d,]+\.?\d*', full_text)
+                                        if price_match:
+                                            price = price_match.group(0)
+                                        
+                                        # Extract change from .positive or .negative span
+                                        change_span = value_container.locator(".positive, .negative").first
+                                        if await change_span.count() > 0:
+                                            change_text = (await change_span.inner_text()).strip()
+                                            # "+$17.81 (3.17%)" or "-$10.00 (-2.5%)"
+                                            parts = change_text.split(" ")
+                                            if len(parts) >= 2:
+                                                change = parts[0]  # e.g., "+$17.81"
+                                                change_pct = parts[1].replace("(", "").replace(")", "")  # e.g., "3.17%"
+                                        break  # Found it, exit loop
                         except Exception as e:
                             continue
                             
                     # Valuation: look for .fp-info-item with label "Forge Price valuation"
                     val_item = page.locator(".fp-info-item").filter(has_text="Forge Price valuation").first
-                    if val_item.count() > 0:
-                        val_text = val_item.locator(".value").inner_text().strip()
+                    if await val_item.count() > 0:
+                        val_text = (await val_item.locator(".value").inner_text()).strip()
                         # Clean up "none" if present (seen in dump as class="value none")
                         if val_text.lower() != "none" and "$" in val_text:
                             valuation = val_text
@@ -270,10 +301,10 @@ class ForgeGlobalService(ScraperService):
                 try:
                     # Use tr.overview selector we found inside #funding table if possible, or just global tr.overview
                     # The dump showed tr.overview at root level of find, so global is fine
-                    rows = page.locator("tr.overview").all()
+                    rows = await page.locator("tr.overview").all()
                     
                     for row in rows:
-                        cells = row.locator("td").all_text_contents()
+                        cells = await row.locator("td").all_text_contents()
                         # Cells: [toggle, Date, Rounds, Amount, Price, Valuation, Investors]
                         if len(cells) >= 7:
                             # Basic info
@@ -296,11 +327,11 @@ class ForgeGlobalService(ScraperService):
 
                             try:
                                 # Get data-index to find the corresponding detail row
-                                data_index = row.get_attribute("data-index")
+                                data_index = await row.get_attribute("data-index")
                                 
                                 # Click to expand - click the first cell which usually contains the chevron/toggle
-                                row.locator("td").first.click()
-                                time.sleep(1.0) # Wait for animation
+                                await row.locator("td").first.click()
+                                # await asyncio.sleep(1.0) # Removed explicit sleep, rely on wait_for below
                                 
                                 if data_index:
                                     # Scope to the specific detail row
@@ -308,14 +339,14 @@ class ForgeGlobalService(ScraperService):
                                     
                                     # Wait for it to be visible
                                     try:
-                                        detail_row.wait_for(state="visible", timeout=2000)
+                                        await detail_row.wait_for(state="visible", timeout=2000)
                                     except:
                                         # If wait fails, try clicking again? Or just proceed if it's already open?
                                         pass
 
-                                    if detail_row.is_visible():
+                                    if await detail_row.is_visible():
                                         # Helper to get value by label within the detail row
-                                        def get_scoped_value(label_text):
+                                        async def get_scoped_value(label_text):
                                             try:
                                                 # Use strict XPath for label text matching (case-insensitive)
                                                 # Must prefix with 'xpath=' for Playwright
@@ -325,22 +356,22 @@ class ForgeGlobalService(ScraperService):
                                                 label_el = detail_row.locator(label_xpath).first
                                                 
                                                 # If label found, get the immediate following sibling div
-                                                if label_el.count() > 0:
+                                                if await label_el.count() > 0:
                                                     value_el = label_el.locator("xpath=following-sibling::div").first
-                                                    if value_el.count() > 0:
-                                                        text = value_el.inner_text().strip()
+                                                    if await value_el.count() > 0:
+                                                        text = (await value_el.inner_text()).strip()
                                                         return text if text and text != "--" else None
                                                 return None
                                             except Exception as e:
                                                 print(f"Error getting value for {label_text}: {e}")
                                                 return None
 
-                                        shares_outstanding = get_scoped_value("Shares Outstanding")
-                                        liq_pref_order = get_scoped_value("Liquidation Pref Order")
-                                        liq_pref_mult = get_scoped_value("Liquidation Pref As Multiplier")
-                                        conv_ratio = get_scoped_value("Conversion Ratio")
-                                        div_rate = get_scoped_value("Dividend Rate")
-                                        part_cap = get_scoped_value("Participation Cap")
+                                        shares_outstanding = await get_scoped_value("Shares Outstanding")
+                                        liq_pref_order = await get_scoped_value("Liquidation Pref Order")
+                                        liq_pref_mult = await get_scoped_value("Liquidation Pref As Multiplier")
+                                        conv_ratio = await get_scoped_value("Conversion Ratio")
+                                        div_rate = await get_scoped_value("Dividend Rate")
+                                        part_cap = await get_scoped_value("Participation Cap")
                                         
                                         # For Dividend/Participation Types, we can check for text "Non-cumulative" etc.
                                         # But let's stick to the requested fields first.
@@ -378,16 +409,16 @@ class ForgeGlobalService(ScraperService):
                 
                 try:
                     # Extract all .col elements that contain label/value pairs
-                    cols = page.locator(".col").all()
+                    cols = await page.locator(".col").all()
                     
                     for col in cols:
                         try:
                             label_el = col.locator(".label").first
                             value_el = col.locator(".value").first
                             
-                            if label_el.count() > 0 and value_el.count() > 0:
-                                label = label_el.inner_text().strip().lower()
-                                value = value_el.inner_text().strip()
+                            if await label_el.count() > 0 and await value_el.count() > 0:
+                                label = (await label_el.inner_text()).strip().lower()
+                                value = (await value_el.inner_text()).strip()
                                 
                                 if "sector" in label and "subsector" not in label:
                                     sector = value
@@ -404,18 +435,18 @@ class ForgeGlobalService(ScraperService):
                     
                     # Description - .desc class
                     desc_el = page.locator(".desc").first
-                    if desc_el.count() > 0:
-                        description = desc_el.inner_text().strip()
+                    if await desc_el.count() > 0:
+                        description = (await desc_el.inner_text()).strip()
                         
                     # Website - .website-url a
                     web_el = page.locator(".website-url a").first
-                    if web_el.count() > 0:
-                        website = web_el.get_attribute("href")
+                    if await web_el.count() > 0:
+                        website = await web_el.get_attribute("href")
                         
                 except Exception as e:
                     print(f"Error extracting details: {e}")
 
-                return CompanyDetail(
+                result = CompanyDetail(
                     name=name,
                     slug=slug,
                     ticker=ticker,
@@ -435,7 +466,14 @@ class ForgeGlobalService(ScraperService):
                     key_people=[],
                     investors=list(set([inv for round in funding_history for inv in round.investors]))
                 )
+                
+                # Store in cache
+                self._detail_cache[slug] = (result, time.time())
+                return result
 
             except Exception as e:
                 print(f"Detailed scraping error: {e}")
                 return None
+        finally:
+            print("Closing browser context...")
+            await context.close()
