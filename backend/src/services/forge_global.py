@@ -14,6 +14,9 @@ class ForgeGlobalService(ScraperService):
     _detail_cache: Dict[str, tuple[CompanyDetail, float]] = {}
     CACHE_TTL = 3600  # 1 hour
 
+    # Concurrency control to prevent OOM on 512MB RAM
+    _lock = asyncio.Lock()
+    
     async def scrape(
         self, 
         sector: Optional[str] = None, 
@@ -42,6 +45,13 @@ class ForgeGlobalService(ScraperService):
 
         print(f"Scraping URL: {url} with speed profile: {speed}")
         
+        lock_acquired = False
+        # Acquire lock to prevent concurrent scrapes
+        print("Acquiring lock for scrape...")
+        await self._lock.acquire()
+        lock_acquired = True
+        print("Lock acquired.")
+
         min_sleep, max_sleep = SLEEP_CONFIG[speed]
         
         results = []
@@ -193,6 +203,9 @@ class ForgeGlobalService(ScraperService):
             await context.close()
             gc.collect()
             print("Memory cleanup completed.")
+            if lock_acquired:
+                self._lock.release()
+                print("Lock released.")
                 
         return results
 
@@ -216,6 +229,12 @@ class ForgeGlobalService(ScraperService):
         url = f"https://forgeglobal.com/{slug}_stock/"
         print(f"Scraping Company Detail URL: {url}")
         
+        lock_acquired = False
+        print("Acquiring lock for detail scrape...")
+        await self._lock.acquire()
+        lock_acquired = True
+        print("Lock acquired.")
+
         # Singleton Browser Usage
         browser = await browser_manager.get_browser()
         context = await browser.new_context()
@@ -499,3 +518,6 @@ class ForgeGlobalService(ScraperService):
             await context.close()
             gc.collect()
             print("Detail scrape memory cleanup completed.")
+            if lock_acquired:
+                self._lock.release()
+                print("Detail lock released.")
