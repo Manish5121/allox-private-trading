@@ -57,7 +57,7 @@ class ForgeGlobalService(ScraperService):
                 
                 print("Waiting for table...")
                 try:
-                    page.wait_for_selector(xpath_selector, timeout=10000)
+                    page.wait_for_selector(xpath_selector, timeout=30000)
                     tbody = page.locator(xpath_selector)
                     rows = tbody.locator("tr").all()
                     
