@@ -74,95 +74,112 @@ class ForgeGlobalService(ScraperService):
                 # Was: //*[@id="searchResults"]/div/div[1]/table/tbody
                 css_selector = "table tbody"
                 
-                print("Waiting for table...")
+                # NEW BATCH STRATEGY: Scrape all data in one go using safe DOM execution
+                # This avoids making 24 separate network requests which was causing the hang
+                print("Extracting table data entries...")
+                
                 try:
-                    # Wait for ANY table body to appear
-                    await page.wait_for_selector(css_selector, timeout=30000)
-                    tbody = page.locator(css_selector).first 
-                    rows = await tbody.locator("tr").all()
+                    table_data = await page.evaluate("""() => {
+                        const rows = Array.from(document.querySelectorAll('table tbody tr'));
+                        return rows.map(row => {
+                            const cells = Array.from(row.querySelectorAll('td'));
+                            if (cells.length < 8) return null;
+                            
+                            // Extract logo safely
+                            const img = row.querySelector('td:first-child img');
+                            const logo = img ? img.src : null;
+                            
+                            // Extract text content cleanly
+                            const texts = cells.map(c => c.innerText);
+                            
+                            return {
+                                logo_url: logo,
+                                cells: texts
+                            };
+                        }).filter(item => item !== null);
+                    }""")
                     
-                    if not rows:
-                        print("No rows found.")
-                        # Debug empty table
+                    print(f"Extracted {len(table_data)} rows successfully.")
+                    
+                    if not table_data:
+                        print("No valid rows found in table.")
                         try:
                             content = await page.content()
                             print(f"DEBUG_HTML_SNIPPET: {content[:3000]}")
                         except:
                             pass
                         return []
-                        
-                    print(f"Found {len(rows)} rows.")
-                    
-                    for row in rows:
-                        cells = await row.locator("td").all_text_contents()
-                        if not cells or len(cells) < 8:
-                            continue
-                            
-                        # Extract logo URL from first column
-                        logo_url = None
+
+                    for item in table_data:
                         try:
-                            # Look for img tag in first cell (logo column)
-                            logo_img = row.locator("td").first.locator("img").first
-                            logo_url = await logo_img.get_attribute("src")
+                            cells = item['cells']
+                            logo_url = item['logo_url']
+                            
+                            if not cells or len(cells) < 8:
+                                continue
+
                             if logo_url and not logo_url.startswith("http"):
-                                # Make absolute URL if relative
                                 logo_url = f"https://forgeglobal.com{logo_url}"
+
+                            # Parse cells based on verified structure
+                            # 0: Logo column
+                            # 1: Company
+                            # 2: Sector & Subsector
+                            # 3: Forge Price
+                            # 4: Last Matched Price
+                            # 5: Round
+                            # 6: Post-Money Valuation
+                            # 7: Price Per Share
+                            # 8: Amount Raised
+                            
+                            company_name = cells[1].strip()
+                            
+                            sector_text = cells[2]
+                            if '\\n' in sector_text:  # JS innerText likely preserves newlines
+                                sector_main, subsector = sector_text.split('\\n', 1)
+                                sector_main = sector_main.strip()
+                                subsector = subsector.strip()
+                            elif '\n' in sector_text:
+                                 sector_main, subsector = sector_text.split('\n', 1)
+                                 sector_main = sector_main.strip()
+                                 subsector = subsector.strip()
+                            else:
+                                sector_main = sector_text.strip()
+                                subsector = ""
+                                
+                            # Create Forge specific model first
+                            forge_data = ForgeCompanyData(
+                                company=company_name,
+                                sector=sector_main,
+                                subsector=subsector,
+                                forge_price=cells[3].strip(),
+                                last_matched_price=cells[4].strip() if cells[4].strip() else None,
+                                round=cells[5].strip(),
+                                post_money_valuation=cells[6].strip(),
+                                price_per_share=cells[7].strip(),
+                                amount_raised=cells[8].strip() if len(cells) > 8 else "",
+                                logo_url=logo_url
+                            )
+                            
+                            # Convert to Unified Model
+                            unified_data = UnifiedCompanyData(
+                                name=company_name,
+                                sector=sector_main,
+                                valuation=forge_data.post_money_valuation,
+                                source="forge_global",
+                                raw_data=forge_data.model_dump()
+                            )
+                            
+                            results.append(unified_data)
                         except Exception as e:
-                            print(f"Could not extract logo: {e}")
-                            
-                        # Parse cells based on verified structure
-                        # 0: Logo column
-                        # 1: Company
-                        # 2: Sector & Subsector
-                        # 3: Forge Price
-                        # 4: Last Matched Price
-                        # 5: Round
-                        # 6: Post-Money Valuation
-                        # 7: Price Per Share
-                        # 8: Amount Raised
-                        
-                        company_name = cells[1].strip()
-                        
-                        sector_text = cells[2]
-                        if '\n' in sector_text:
-                            sector_main, subsector = sector_text.split('\n', 1)
-                            sector_main = sector_main.strip()
-                            subsector = subsector.strip()
-                        else:
-                            sector_main = sector_text.strip()
-                            subsector = ""
-                            
-                        # Create Forge specific model first
-                        forge_data = ForgeCompanyData(
-                            company=company_name,
-                            sector=sector_main,
-                            subsector=subsector,
-                            forge_price=cells[3].strip(),
-                            last_matched_price=cells[4].strip() if cells[4].strip() else None,
-                            round=cells[5].strip(),
-                            post_money_valuation=cells[6].strip(),
-                            price_per_share=cells[7].strip(),
-                            amount_raised=cells[8].strip() if len(cells) > 8 else "",
-                            logo_url=logo_url
-                        )
-                        
-                        # Convert to Unified Model
-                        unified_data = UnifiedCompanyData(
-                            name=company_name,
-                            sector=sector_main,
-                            valuation=forge_data.post_money_valuation,
-                            source="forge_global",
-                            raw_data=forge_data.model_dump()
-                        )
-                        
-                        results.append(unified_data)
+                            print(f"Error parsing row item: {e}")
+                            continue
                         
                 except Exception as e:
-                    print(f"Error finding/parsing table: {e}")
+                    print(f"Error executing batch extraction: {e}")
                     # Debugging for Render deployment
                     try:
                         print(f"DEBUG_URL: {page.url}")
-                        print(f"DEBUG_TITLE: {await page.title()}")
                         content = await page.content()
                         print(f"DEBUG_HTML_SNIPPET: {content[:3000]}")
                     except:
