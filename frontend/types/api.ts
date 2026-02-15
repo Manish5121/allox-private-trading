@@ -14,6 +14,16 @@ export interface FundingRound {
     price_per_share: string;
     valuation: string;
     investors: string[];
+
+    // Detailed metrics
+    shares_outstanding?: string;
+    liquidation_preference_order?: string;
+    liquidation_preference_multiple?: string;
+    conversion_ratio?: string;
+    dividend_rate?: string;
+    dividend_type?: string;
+    participation_type?: string;
+    participation_cap?: string;
 }
 
 export interface KeyPerson {

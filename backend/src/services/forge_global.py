@@ -133,6 +133,12 @@ class ForgeGlobalService(ScraperService):
                         
                 except Exception as e:
                     print(f"Error finding/parsing table: {e}")
+                    # Debugging for Render deployment
+                    try:
+                        print(f"DEBUG_URL: {page.url}")
+                        print(f"DEBUG_TITLE: {page.title()}")
+                    except:
+                        pass
                     
             except Exception as e:
                 print(f"Navigation error: {e}")
@@ -243,13 +249,93 @@ class ForgeGlobalService(ScraperService):
                         cells = row.locator("td").all_text_contents()
                         # Cells: [toggle, Date, Rounds, Amount, Price, Valuation, Investors]
                         if len(cells) >= 7:
+                            # Basic info
+                            date_str = cells[1].strip()
+                            round_label = cells[2].strip()
+                            amount_raised = cells[3].strip()
+                            price_per_share = cells[4].strip()
+                            valuation = cells[5].strip()
+                            investors_list = [inv.strip() for inv in cells[6].split(",")] if cells[6].strip() else []
+
+                            # Detailed info (initially None)
+                            shares_outstanding = None
+                            liq_pref_order = None
+                            liq_pref_mult = None
+                            conv_ratio = None
+                            div_rate = None
+                            div_type = None
+                            part_type = None
+                            part_cap = None
+
+                            try:
+                                # Get data-index to find the corresponding detail row
+                                data_index = row.get_attribute("data-index")
+                                
+                                # Click to expand - click the first cell which usually contains the chevron/toggle
+                                row.locator("td").first.click()
+                                time.sleep(1.0) # Wait for animation
+                                
+                                if data_index:
+                                    # Scope to the specific detail row
+                                    detail_row = page.locator(f"tr.detail[data-index='{data_index}']")
+                                    
+                                    # Wait for it to be visible
+                                    try:
+                                        detail_row.wait_for(state="visible", timeout=2000)
+                                    except:
+                                        # If wait fails, try clicking again? Or just proceed if it's already open?
+                                        pass
+
+                                    if detail_row.is_visible():
+                                        # Helper to get value by label within the detail row
+                                        def get_scoped_value(label_text):
+                                            try:
+                                                # Use strict XPath for label text matching (case-insensitive)
+                                                # Must prefix with 'xpath=' for Playwright
+                                                label_xpath = f"xpath=.//div[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{label_text.lower()}')]"
+                                                
+                                                # Locate the label
+                                                label_el = detail_row.locator(label_xpath).first
+                                                
+                                                # If label found, get the immediate following sibling div
+                                                if label_el.count() > 0:
+                                                    value_el = label_el.locator("xpath=following-sibling::div").first
+                                                    if value_el.count() > 0:
+                                                        text = value_el.inner_text().strip()
+                                                        return text if text and text != "--" else None
+                                                return None
+                                            except Exception as e:
+                                                print(f"Error getting value for {label_text}: {e}")
+                                                return None
+
+                                        shares_outstanding = get_scoped_value("Shares Outstanding")
+                                        liq_pref_order = get_scoped_value("Liquidation Pref Order")
+                                        liq_pref_mult = get_scoped_value("Liquidation Pref As Multiplier")
+                                        conv_ratio = get_scoped_value("Conversion Ratio")
+                                        div_rate = get_scoped_value("Dividend Rate")
+                                        part_cap = get_scoped_value("Participation Cap")
+                                        
+                                        # For Dividend/Participation Types, we can check for text "Non-cumulative" etc.
+                                        # But let's stick to the requested fields first.
+                                        
+                            except Exception as e:
+                                print(f"Error extracting details for {round_label}: {e}")
+                            
                             funding_history.append(FundingRound(
-                                date=cells[1].strip(),
-                                round_label=cells[2].strip(),
-                                amount_raised=cells[3].strip(),
-                                price_per_share=cells[4].strip(),
-                                valuation=cells[5].strip(),
-                                investors=[inv.strip() for inv in cells[6].split(",")] if cells[6].strip() else []
+                                date=date_str,
+                                round_label=round_label,
+                                amount_raised=amount_raised,
+                                price_per_share=price_per_share,
+                                valuation=valuation,
+                                investors=investors_list,
+                                shares_outstanding=shares_outstanding,
+                                liquidation_preference_order=liq_pref_order,
+                                liquidation_preference_multiple=liq_pref_mult,
+                                conversion_ratio=conv_ratio,
+                                dividend_rate=div_rate,
+                                dividend_type=div_type,
+                                participation_type=part_type,
+                                participation_cap=part_cap
                             ))
                 except Exception as e:
                     print(f"Error extracting funding: {e}")
@@ -320,7 +406,7 @@ class ForgeGlobalService(ScraperService):
                     valuation=valuation,
                     funding_history=funding_history,
                     key_people=[],
-                    investors=[]
+                    investors=list(set([inv for round in funding_history for inv in round.investors]))
                 )
 
             except Exception as e:

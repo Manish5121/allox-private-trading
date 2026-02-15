@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, Fragment } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { companies, getOrdersForCompany, getFundingForCompany, getInvestorsForCompany, getLeadershipForCompany, getNewsForCompany } from '@/lib/mock-data';
@@ -11,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { Star, Phone, ChevronRight, TrendingUp, TrendingDown, Building2, MapPin, Users, Briefcase, DollarSign, ExternalLink } from 'lucide-react';
+import { Star, Phone, ChevronRight, ChevronDown, TrendingUp, TrendingDown, Building2, MapPin, Users, Briefcase, DollarSign, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 import { useQuery } from '@tanstack/react-query';
@@ -21,6 +22,19 @@ import { Loader2 } from 'lucide-react';
 export default function Deal() {
     const params = useParams();
     const slug = params.slug as string;
+
+    // State for expanded rows
+    const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set());
+
+    const toggleRound = (round: string) => {
+        const newExpanded = new Set(expandedRounds);
+        if (newExpanded.has(round)) {
+            newExpanded.delete(round);
+        } else {
+            newExpanded.add(round);
+        }
+        setExpandedRounds(newExpanded);
+    };
 
     const { data: company, isLoading, error } = useQuery({
         queryKey: ['company', slug],
@@ -67,7 +81,15 @@ export default function Deal() {
         round: f.round_label,
         amount: f.amount_raised,
         valuation: f.valuation,
-        leadInvestor: f.investors[0] || 'Undisclosed'
+        investors: f.investors.length > 0 ? f.investors.join(', ') : 'Undisclosed',
+        // Detailed metrics
+        pricePerShare: f.price_per_share,
+        sharesOutstanding: f.shares_outstanding,
+        liquidationPreferenceOrder: f.liquidation_preference_order,
+        liquidationPreferenceMultiple: f.liquidation_preference_multiple,
+        conversionRatio: f.conversion_ratio,
+        dividendRate: f.dividend_rate,
+        participationCap: f.participation_cap
     }));
 
     // Map API investors to UI format
@@ -165,28 +187,104 @@ export default function Deal() {
                         <TabsTrigger value="similar">Similar Companies</TabsTrigger>
                     </TabsList>
 
+
+
+
+
                     {/* Funding */}
                     <TabsContent value="funding" className="mt-4">
                         <Card className="overflow-hidden rounded-xl border border-border shadow-sm">
                             <table className="w-full">
                                 <thead className="bg-muted/50">
                                     <tr>
+                                        <th className="w-10 px-4 py-3"></th>
                                         <th className="px-6 py-3 text-left text-xs font-medium uppercase text-muted-foreground">Date</th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium uppercase text-muted-foreground">Stage</th>
+                                        <th className="w-32 px-4 py-3 text-left text-xs font-medium uppercase text-muted-foreground">Stage</th>
                                         <th className="px-4 py-3 text-right text-xs font-medium uppercase text-muted-foreground">Amount</th>
                                         <th className="hidden px-4 py-3 text-right text-xs font-medium uppercase text-muted-foreground sm:table-cell">Valuation</th>
-                                        <th className="hidden px-6 py-3 text-left text-xs font-medium uppercase text-muted-foreground md:table-cell">Lead</th>
+                                        <th className="hidden px-6 py-3 text-left text-xs font-medium uppercase text-muted-foreground md:table-cell">Investors</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {rounds.map(f => (
-                                        <tr key={f.round} className="border-t border-border hover:bg-accent/50">
-                                            <td className="px-6 py-4 text-sm text-muted-foreground">{f.date}</td>
-                                            <td className="px-4 py-4 text-sm"><Badge variant="secondary">{f.round}</Badge></td>
-                                            <td className="px-4 py-4 text-right text-sm font-medium text-success">{f.amount}</td>
-                                            <td className="hidden px-4 py-4 text-right text-sm text-muted-foreground sm:table-cell">{f.valuation}</td>
-                                            <td className="hidden px-6 py-4 text-sm text-muted-foreground md:table-cell">{f.leadInvestor}</td>
-                                        </tr>
+                                        <Fragment key={f.round}>
+                                            <tr
+                                                className="border-t border-border hover:bg-accent/50 cursor-pointer transition-colors"
+                                                onClick={() => toggleRound(f.round)}
+                                            >
+                                                <td className="px-4 py-4">
+                                                    {expandedRounds.has(f.round) ?
+                                                        <ChevronDown className="h-4 w-4 text-muted-foreground" /> :
+                                                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                                    }
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-muted-foreground">{f.date}</td>
+                                                <td className="px-4 py-4 text-sm"><Badge variant="secondary">{f.round}</Badge></td>
+                                                <td className="px-4 py-4 text-right text-sm font-medium text-success">{f.amount}</td>
+                                                <td className="hidden px-4 py-4 text-right text-sm text-muted-foreground sm:table-cell">{f.valuation}</td>
+                                                <td className="hidden px-6 py-4 text-sm text-muted-foreground md:table-cell">
+                                                    <div className="line-clamp-1 text-muted-foreground">
+                                                        {f.investors}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {expandedRounds.has(f.round) && (
+                                                <tr className="bg-white border-t border-border border-b">
+                                                    <td colSpan={6} className="p-0">
+                                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 p-6">
+
+                                                            {/* Column 1: Share Info */}
+                                                            <div className="space-y-4">
+                                                                <div>
+                                                                    <div className="text-xs font-medium text-muted-foreground uppercase mb-1">Price Per Share</div>
+                                                                    <div className="text-sm font-medium">{f.pricePerShare || '--'}</div>
+                                                                </div>
+                                                                <div>
+                                                                    <div className="text-xs font-medium text-muted-foreground uppercase mb-1">Shares Outstanding</div>
+                                                                    <div className="text-sm font-medium">{f.sharesOutstanding || '--'}</div>
+                                                                </div>
+                                                                <div>
+                                                                    <div className="text-xs font-medium text-muted-foreground uppercase mb-1">Conversion Ratio</div>
+                                                                    <div className="text-sm font-medium">{f.conversionRatio || '--'}</div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Column 2: Liquidation */}
+                                                            <div className="space-y-4">
+                                                                <div>
+                                                                    <div className="text-xs font-medium text-muted-foreground uppercase mb-1">Liq. Pref. Order</div>
+                                                                    <div className="text-sm font-medium">{f.liquidationPreferenceOrder || '--'}</div>
+                                                                </div>
+                                                                <div>
+                                                                    <div className="text-xs font-medium text-muted-foreground uppercase mb-1">Liq. Pref. Multiple</div>
+                                                                    <div className="text-sm font-medium">{f.liquidationPreferenceMultiple || '--'}</div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Column 3: Dividends & Participation */}
+                                                            <div className="space-y-4">
+                                                                <div>
+                                                                    <div className="text-xs font-medium text-muted-foreground uppercase mb-1">Dividend Rate</div>
+                                                                    <div className="text-sm font-medium">{f.dividendRate || '--'}</div>
+                                                                </div>
+                                                                <div>
+                                                                    <div className="text-xs font-medium text-muted-foreground uppercase mb-1">Participation Cap</div>
+                                                                    <div className="text-sm font-medium">{f.participationCap || '--'}</div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Column 4: Key Investors (Active) */}
+                                                            <div className="md:col-span-1">
+                                                                <div className="text-xs font-medium text-muted-foreground uppercase mb-2">Key Investors</div>
+                                                                <div className="text-sm leading-relaxed text-foreground">
+                                                                    {f.investors}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </Fragment>
                                     ))}
                                 </tbody>
                             </table>

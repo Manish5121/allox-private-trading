@@ -29,6 +29,16 @@ class FundingRound(BaseModel):
     price_per_share: str
     valuation: str
     investors: List[str]
+    
+    # Detailed Metrics
+    shares_outstanding: Optional[str] = None
+    liquidation_preference_order: Optional[str] = None
+    liquidation_preference_multiple: Optional[str] = None
+    conversion_ratio: Optional[str] = None
+    dividend_rate: Optional[str] = None
+    dividend_type: Optional[str] = None # Cumulative vs Non-cumulative
+    participation_type: Optional[str] = None # Participating vs Non-participating
+    participation_cap: Optional[str] = None
 
 class KeyPerson(BaseModel):
     name: str
