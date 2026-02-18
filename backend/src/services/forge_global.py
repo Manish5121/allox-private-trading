@@ -12,10 +12,18 @@ class ForgeGlobalService(ScraperService):
     BASE_URL = "https://forgeglobal.com/search-companies/"
     # Simple in-memory cache: slug -> (data, timestamp)
     _detail_cache: Dict[str, tuple[CompanyDetail, float]] = {}
+    
+    # List API Cache: key -> (data, timestamp)
+    # Key format: f"{sector}:{valuation}:{page_num}"
+    _list_cache: Dict[str, tuple[List[UnifiedCompanyData], float]] = {}
+    
     CACHE_TTL = 3600  # 1 hour
 
-    # Concurrency control to prevent OOM on 512MB RAM
-    _lock = asyncio.Lock()
+    # Concurrency control to prevent OOM on 1GB RAM (t3.micro)
+    # We use a Semaphore to queue requests instead of a Lock
+    # This limits ACTIVE browsers, but allows queuing
+    from src.config import MAX_CONCURRENCY
+    _sem = asyncio.Semaphore(MAX_CONCURRENCY)
     
     async def scrape(
         self, 
@@ -25,8 +33,20 @@ class ForgeGlobalService(ScraperService):
         speed: SpeedProfile = SpeedProfile.NORMAL
     ) -> List[UnifiedCompanyData]:
         """
-        Scrapes Forge Global data based on sector and valuation filters.
+        Scrapes Forge Global data with caching and concurrency protection.
         """
+        # 1. Check Cache
+        cache_key = f"{sector}:{valuation}:{page_num}"
+        current_time = time.time()
+        
+        if cache_key in self._list_cache:
+            data, timestamp = self._list_cache[cache_key]
+            if current_time - timestamp < self.CACHE_TTL:
+                print(f"CACHE HIT for list: {cache_key}")
+                return data
+            else:
+                del self._list_cache[cache_key]
+        
         # Construct URL
         url = self.BASE_URL
         if sector:
@@ -45,15 +65,11 @@ class ForgeGlobalService(ScraperService):
 
         print(f"Scraping URL: {url} with speed profile: {speed}")
         
-        # Acquire lock to prevent concurrent scrapes
-        print("Acquiring lock for scrape...")
-        async with self._lock:
-            print("Lock acquired.")
-            
+        # 2. Acquire Semaphore (Queue)
+        async with self._sem:
             context = None
             try:
                 min_sleep, max_sleep = SLEEP_CONFIG[speed]
-                
                 results = []
                 
                 # Singleton Browser Usage
@@ -72,22 +88,14 @@ class ForgeGlobalService(ScraperService):
                 await page.route("**/*", route_handler)
                 
                 try:
-                    print(f"Navigating to {url}...")
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                     
                     # Sleep based on speed profile
                     sleep_time = random.uniform(min_sleep, max_sleep)
-                    print(f"Sleeping for {sleep_time:.2f}s...")
-                    await asyncio.sleep(sleep_time) # Use async sleep
+                    await asyncio.sleep(sleep_time)
                     
-                    # Use simpler CSS selector for robustness
-                    # Was: //*[@id="searchResults"]/div/div[1]/table/tbody
-                    css_selector = "table tbody"
-                    
-                    # NEW BATCH STRATEGY: Scrape all data in one go using safe DOM execution
-                    # This avoids making 24 separate network requests which was causing the hang
+                    # New Extraction Logic
                     print("Extracting table data entries...")
-                    
                     try:
                         table_data = await page.evaluate("""() => {
                             const rows = Array.from(document.querySelectorAll('table tbody tr'));
@@ -113,11 +121,6 @@ class ForgeGlobalService(ScraperService):
                         
                         if not table_data:
                             print("No valid rows found in table.")
-                            try:
-                                content = await page.content()
-                                print(f"DEBUG_HTML_SNIPPET: {content[:3000]}")
-                            except:
-                                pass
                             return []
 
                         for item in table_data:
@@ -131,33 +134,20 @@ class ForgeGlobalService(ScraperService):
                                 if logo_url and not logo_url.startswith("http"):
                                     logo_url = f"https://forgeglobal.com{logo_url}"
     
-                                # Parse cells based on verified structure
-                                # 0: Logo column
-                                # 1: Company
-                                # 2: Sector & Subsector
-                                # 3: Forge Price
-                                # 4: Last Matched Price
-                                # 5: Round
-                                # 6: Post-Money Valuation
-                                # 7: Price Per Share
-                                # 8: Amount Raised
-                                
                                 company_name = cells[1].strip()
-                                
                                 sector_text = cells[2]
-                                if '\\n' in sector_text:  # JS innerText likely preserves newlines
+                                
+                                # Handle newlines in sector
+                                if '\\n' in sector_text:
                                     sector_main, subsector = sector_text.split('\\n', 1)
-                                    sector_main = sector_main.strip()
-                                    subsector = subsector.strip()
                                 elif '\n' in sector_text:
                                      sector_main, subsector = sector_text.split('\n', 1)
-                                     sector_main = sector_main.strip()
-                                     subsector = subsector.strip()
                                 else:
-                                    sector_main = sector_text.strip()
+                                    sector_main = sector_text
                                     subsector = ""
+                                sector_main = sector_main.strip()
+                                subsector = subsector.strip()
                                     
-                                # Create Forge specific model first
                                 forge_data = ForgeCompanyData(
                                     company=company_name,
                                     sector=sector_main,
@@ -171,7 +161,6 @@ class ForgeGlobalService(ScraperService):
                                     logo_url=logo_url
                                 )
                                 
-                                # Convert to Unified Model
                                 unified_data = UnifiedCompanyData(
                                     name=company_name,
                                     sector=sector_main,
@@ -187,24 +176,24 @@ class ForgeGlobalService(ScraperService):
                             
                     except Exception as e:
                         print(f"Error executing batch extraction: {e}")
-                        # Debugging for Render deployment
-                        try:
-                            print(f"DEBUG_URL: {page.url}")
-                            content = await page.content()
-                            print(f"DEBUG_HTML_SNIPPET: {content[:3000]}")
-                        except:
-                            pass
                         
                 except Exception as e:
                     print(f"Navigation error: {e}")
+
+                # 3. Update Cache if successful
+                if results:
+                    self._list_cache[cache_key] = (results, time.time())
+                
+                return results
+
             finally:
-                print("Closing browser context...")
                 if context:
                     await context.close()
+                
+                # We KEEP the browser open for performance.
+                # Only close context (tab) to free page resources.
+                
                 gc.collect()
-                print("Memory cleanup completed.")
-                    
-            return results
 
     async def scrape_company_detail(self, slug: str) -> Optional[CompanyDetail]:
         """
@@ -226,10 +215,7 @@ class ForgeGlobalService(ScraperService):
         url = f"https://forgeglobal.com/{slug}_stock/"
         print(f"Scraping Company Detail URL: {url}")
         
-        print("Acquiring lock for detail scrape...")
-        async with self._lock:
-            print("Lock acquired.")
-            
+        async with self._sem:
             context = None
             try:
                 # Singleton Browser Usage
@@ -510,9 +496,8 @@ class ForgeGlobalService(ScraperService):
                     print(f"Detailed scraping error: {e}")
                     return None
             finally:
-                print("Closing browser context...")
                 if context:
                     await context.close()
+                
                 gc.collect()
-                print("Detail scrape memory cleanup completed.")
                 # Lock released automatically by async with

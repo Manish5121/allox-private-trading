@@ -13,14 +13,22 @@ class BrowserManager:
     async def start(self):
         """Initializes the global browser instance with memory optimization flags."""
         if self._browser is None:
-            print("Initializing global browser instance...")
             # Memory optimization args for Render
             browser_args = [
                 "--disable-dev-shm-usage", 
                 "--no-sandbox", 
                 "--disable-gpu", 
                 "--disable-software-rasterizer", 
-                "--single-process"
+                "--single-process",
+                "--js-flags=--max-old-space-size=128",  # Limit V8 heap to 128MB
+                "--disable-extensions",
+                "--disable-component-extensions-with-background-pages",
+                "--mute-audio",
+                "--no-zygote",
+                "--no-first-run",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--disable-sync"
             ]
             
             self._camoufox = AsyncCamoufox(headless=True, args=browser_args)
@@ -30,7 +38,6 @@ class BrowserManager:
     async def stop(self):
         """Closes the global browser instance."""
         if self._browser:
-            print("Closing global browser instance...")
             await self._browser.close()
             self._browser = None
             if hasattr(self, '_camoufox'):

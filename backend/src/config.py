@@ -10,3 +10,7 @@ SLEEP_CONFIG = {
     SpeedProfile.NORMAL: (0.5, 1.5),
     SpeedProfile.SLOW: (1.5, 3.0),
 }
+
+# Concurrency & Caching Config
+MAX_CONCURRENCY = 1  # Strict limit for t3.micro (1GB RAM)
+CACHE_TTL = 3600  # 1 hour cache validation
